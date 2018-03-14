@@ -18,6 +18,7 @@
 #include <openssl/aes.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/ec.h>
 #include <errno.h>
 
 
@@ -57,7 +58,7 @@ void decryptMsg(char* ctMsg, char* ptMsg, RSA* keypair, int encrypt_len) {
 }
 
 /*EVP FUNCTIONS*/
-int aesEncrypt(const unsigned char* aesKey, unsigned char* aesIV, unsigned char* msg, unsigned char** enMsg ) {
+int aesEncrypt(const unsigned char* aesKey, unsigned char* aesIV, unsigned char* msg, unsigned char** enMsg, int size ) {
     size_t blockLen  = 0;
     size_t encMsgLen = 0;
 
@@ -65,17 +66,18 @@ int aesEncrypt(const unsigned char* aesKey, unsigned char* aesIV, unsigned char*
     if(aesEncryptCtx == NULL) {
         return -1;
     }
-    EVP_CIPHER_CTX_init(aesEncryptCtx);
-    
-    size_t msgLen = BUFSIZE;
-    *enMsg = (unsigned char*)malloc(msgLen + AES_BLOCK_SIZE);
+    //EVP_CIPHER_CTX_init(aesEncryptCtx);
+
+    *enMsg = (unsigned char*)malloc((size/16+1)*16);
+    printf("size: %i\n", (size/16+1)*16);
     if(enMsg == NULL){
         return -1;
     }
-    if(!EVP_EncryptInit_ex(aesEncryptCtx, EVP_aes_256_cbc(), NULL, aesKey, aesIV)) {
+    if(!EVP_EncryptInit_ex(aesEncryptCtx, EVP_aes_128_gcm(), NULL, aesKey, NULL)) {
         return -1;
     }
-    if(!EVP_EncryptUpdate(aesEncryptCtx, *enMsg, (int*)&blockLen, (unsigned char*)msg, msgLen)) {
+
+    if(!EVP_EncryptUpdate(aesEncryptCtx, *enMsg, (int*)&blockLen, (unsigned char*)msg, size)) {
         return -1;
     }
     encMsgLen += blockLen;
@@ -102,7 +104,7 @@ int aesDecrypt(const unsigned char* aesKey, unsigned char* aesIV, unsigned char*
     *deMsg = (unsigned char*)malloc(enMsgLen);
     if(*deMsg == NULL) return -1;
     
-    if(!EVP_DecryptInit_ex(aesDecryptCtx, EVP_aes_256_cbc(), NULL, aesKey, aesIV)) {
+    if(!EVP_DecryptInit_ex(aesDecryptCtx, EVP_aes_256_gcm(), NULL, aesKey, NULL)) {
         printf("error_in_decrypt_init\n");
         
         ERR_print_errors_fp(stderr);
@@ -128,50 +130,83 @@ int aesDecrypt(const unsigned char* aesKey, unsigned char* aesIV, unsigned char*
     EVP_CIPHER_CTX_cleanup(aesDecryptCtx);
     return deLen + blockLen;
 }
-
-int rsaEncrypt(EVP_PKEY *localKeypair, EVP_PKEY *remoteKeypair) {
-    rsaEncryptCtx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));
-    EVP_CIPHER_CTX_init(rsaEncryptCtx);
-
-
-    return 0;
-}
-int rsaDecrypt(EVP_PKEY *localKeypair, EVP_PKEY *remoteKeypair) {
-    rsaDecryptCtx = (EVP_CIPHER_CTX*)malloc(sizeof(EVP_CIPHER_CTX));
-    EVP_CIPHER_CTX_init(rsaDecryptCtx);
-
-
-    return 0;
-}
-/*int main() {
-    #define AES_KEYLEN 256
-    unsigned char *aesKey;
-    unsigned char *aesIv;
-    char msg[2048/8];
-    
-    printf("Message to encrypt: ");
-    fgets(msg, 2048/8, stdin);
-    msg[strlen(msg)-1] = '\0';
-    
-    //init AES
-    aesKey = (unsigned char*)malloc(AES_KEYLEN/8);
-    aesIv = (unsigned char*)malloc(AES_KEYLEN/8);
-    
-    unsigned char *aesPass = (unsigned char*)malloc(AES_KEYLEN/8);
-    unsigned char *aesSalt = (unsigned char*)malloc(8);
-    
-    FILE *file = fopen("aeskey.txt", "r");
-    char buf[AES_KEYLEN];
-    for(int i = 0; fgets(buf, AES_KEYLEN, file); i++) {
-        if (i==0) {
-            strcpy((char*)aesKey, buf);
-        } else {
-            strcpy((char*)aesIv, buf);
-        }
+//EVP_PKEY_CTX *paramCtx;
+//EVP_PKEY_CTX *keyCtx;
+EVP_PKEY_CTX *sharedCtx = NULL;
+//EVP_PKEY *params = NULL;
+//EVP_PKEY *pkey = NULL;
+int eccGenerateSecret(EVP_PKEY *myPriv, EVP_PKEY *myPub, EVP_PKEY *theirPub, unsigned char **secret) {
+    size_t secretlen;
+    //check otherPubKey for validity?
+    printf("1\n");
+    if(!(sharedCtx = EVP_PKEY_CTX_new(myPriv, NULL))) {
+        printf("error in pkey ctx\n");
+        return -1;
     }
-    printf("key: %s, iv: %s\n", aesKey, aesIv);
+    printf("2\n");
+
+    if(EVP_PKEY_derive_init(sharedCtx) <= 0) {
+        printf("error in pkey derive init\n");
+        return -1;
+    }
+    printf("3\n");
+
+    if(EVP_PKEY_derive_set_peer(sharedCtx, theirPub) <= 0) {
+        printf("error in derive set peer\n");
+        return -1;
+    }
+    printf("4\n");
+
+    if(EVP_PKEY_derive(sharedCtx, NULL, &secretlen) <= 0) {
+        printf("error in derive\n");
+        return -1;
+    }
+    printf("5\n");
     
-    unsigned char* enMsg = NULL;
-    aesEncrypt(aesKey, aesIv, msg, enMsg);
-    return 0;
-}*/
+    *secret = (unsigned char*)OPENSSL_malloc(secretlen);
+    if(!*secret) {
+        printf("error in secret malloc\n");
+        return -1;
+    }
+    printf("6\n");
+
+    if((EVP_PKEY_derive(sharedCtx, *secret, &secretlen)) <= 0) {
+        printf("error derive secret\n");
+        return -1;
+    }
+    printf("secret len: %i\n", secretlen);
+    printf("shared secret: %s\n", *secret);
+    printf("7\n");
+
+    EVP_PKEY_CTX_free(sharedCtx);
+    //EVP_PKEY_free(peerkey);
+    //EVP_PKEY_free(pkey);
+    //EVP_PKEY_CTX_free(keyCtx);
+    //EVP_PKEY_free(params);
+    //EVP_PKEY_CTX_free(paramCtx);
+    return secretlen;
+    
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

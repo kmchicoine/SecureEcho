@@ -32,7 +32,9 @@ EVP_PKEY *remotePublicKey = NULL;
 
 char *aesKey;
 char *aesIv;
-
+EVP_PKEY *myPub;
+EVP_PKEY *myPriv;
+EVP_PKEY *theirPub;
 
 struct timeval start, end;
 
@@ -74,19 +76,37 @@ int main(int argc, const char * argv[]) {
             continue;
         }
     }
+    fclose(file);
+    printf("aes size: %i\n", strlen(aesKey));
+    
+    file = fopen("160pub1.pem", "r");
+    PEM_read_PUBKEY(file, &myPub, NULL, NULL);
+    fclose(file);
+    
+    file = fopen("160priv1.pem", "r");
+    PEM_read_PrivateKey(file, &myPriv, NULL, NULL);
+    fclose(file);
+    
+    file = fopen("160pub2.pem", "r");
+    PEM_read_PUBKEY(file, &theirPub, NULL, NULL);
+    fclose(file);
+    
+    unsigned char *secret = NULL;
+    size_t secretLen;
+    secretLen = eccGenerateSecret(myPriv, myPub, theirPub, &secret);
+    printf("secretlen: %i\n", secretLen);
+    printf("secret: %s\n", secret);
     
     unsigned char* enMsg = NULL;
     printf("msg size: %i\n", sizeof(msg));
+    
+    size_t totalSize = 0;
+    size_t enLen = 0;
+    enLen = aesEncrypt(secret, NULL, (unsigned char*)msg, &enMsg, strlen(msg));
+    printf("enlen: %i\n", enLen);
 
-    size_t enLen = aesEncrypt((unsigned char*)aesKey, (unsigned char*)aesIv, (unsigned char*)msg, &enMsg);
     sender.enLen = enLen;
     memcpy(sender.msg, enMsg, enLen);
-    
-    unsigned char* testbuf = NULL;
-    int dRes = aesDecrypt((unsigned char*)aesKey, (unsigned char*)aesIv, sender.msg, &testbuf, sender.enLen);
-    printf("Encrypted message: %s\n", sender.msg);
-    printf("Decrypted message: %s\n", testbuf);
-    
     
 
 
@@ -114,6 +134,5 @@ int main(int argc, const char * argv[]) {
     memset(&buf, 0, len);
     rec = recvfrom(sockfd, buf, BUFSIZE, 0, (struct sockaddr *) &serverAddr, &len);
     buf[rec] = '\0';
-    printf("echo: %s\n", buf);
     return 0;
 }

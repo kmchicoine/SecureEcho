@@ -23,6 +23,9 @@
 
 char *aesKey;
 char *aesIv;
+EVP_PKEY *myPriv;
+EVP_PKEY *myPub;
+EVP_PKEY *theirPub;
 
 int main(int argc, const char * argv[]) {
     int sockfd;
@@ -38,7 +41,7 @@ int main(int argc, const char * argv[]) {
     aesKey = (char*)malloc(AES_KEYLEN);
     aesIv = (char*)malloc(AES_KEYLEN);
     
-    FILE *file = fopen("aeskey.txt", "r");
+    FILE *file; /*= fopen("aeskey.txt", "r");
     char readbuf[AES_KEYLEN];
     for(int i = 0; fgets(readbuf, AES_KEYLEN, file); i++) {
         if (i==0) {
@@ -51,7 +54,24 @@ int main(int argc, const char * argv[]) {
         } else {
             continue;
         }
-    }
+    }*/
+    
+    file = fopen("160pub2.pem", "r");
+    PEM_read_PUBKEY(file, &myPub, NULL, NULL);
+    fclose(file);
+    
+    file = fopen("160priv2.pem", "r");
+    PEM_read_PrivateKey(file, &myPriv, NULL, NULL);
+    fclose(file);
+    
+    file = fopen("160pub1.pem", "r");
+    PEM_read_PUBKEY(file, &theirPub, NULL, NULL);
+    fclose(file);
+    unsigned char *secret = NULL;
+    size_t secretLen;
+    secretLen = eccGenerateSecret(myPriv, myPub, theirPub, &secret);
+    printf("secretlen: %i\n", secretLen);
+    printf("secret: %s\n", secret);
         
     //create socket
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -78,7 +98,7 @@ int main(int argc, const char * argv[]) {
         unsigned char* deMsg;
         printf("size: %i, received: %s\n", recMsg.enLen, recMsg.msg);
 
-        int res = aesDecrypt((unsigned char*)aesKey, (unsigned char*)aesIv, recMsg.msg, &deMsg, recMsg.enLen);
+        int res = aesDecrypt(secret, NULL, recMsg.msg, &deMsg, recMsg.enLen);
 
         printf("echoing: %s\n", deMsg);
         sendto(sockfd, deMsg, BUFSIZE, 0, (struct sockaddr *) &clientAddr, len);

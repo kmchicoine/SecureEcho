@@ -1,7 +1,7 @@
 CC=g++
 
 CFLAGS+=-Wall -W -g -I /usr/local/opt /usr/local/opt/openssl/lib/libcrypto.a 
-LDFLAGS+=-L/usr/local/opt/openssl/lib
+
 all: server client
 
 client: client.c
